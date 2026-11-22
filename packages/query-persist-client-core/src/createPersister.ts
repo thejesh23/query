@@ -1,6 +1,7 @@
 import {
   hashKey,
   matchQuery,
+  noop,
   notifyManager,
   partialMatchKey,
 } from '@tanstack/query-core'
@@ -327,7 +328,8 @@ export function experimental_createQueryPersister<TStorageValue = string>({
             refetchOnRestore === 'always' ||
             (refetchOnRestore === true && query.isStale())
           ) {
-            query.fetch()
+            // the error is stored in the query state, so it is safe to ignore here
+            query.fetch().catch(noop)
           }
         },
       )

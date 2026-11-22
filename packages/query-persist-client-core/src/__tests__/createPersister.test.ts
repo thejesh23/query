@@ -1,5 +1,18 @@
-import { Query, QueryClient, hashKey } from '@tanstack/query-core'
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import {
+  Query,
+  QueryClient,
+  QueryObserver,
+  hashKey,
+} from '@tanstack/query-core'
+import {
+  afterAll,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  onTestFinished,
+  vi,
+} from 'vitest'
 import {
   PERSISTER_KEY_PREFIX,
   experimental_createQueryPersister,
@@ -359,6 +372,48 @@ describe('createPersister', () => {
     await vi.advanceTimersByTimeAsync(0)
     expect(queryFn).toHaveBeenCalledTimes(0)
     expect(query.fetch).toHaveBeenCalledTimes(0)
+  })
+
+  it('should not cause an unhandled rejection when the refetch after restore fails', async () => {
+    const unhandledRejectionFn = vi.fn<NodeJS.UnhandledRejectionListener>()
+    process.on('unhandledRejection', unhandledRejectionFn)
+    onTestFinished(() => {
+      process.off('unhandledRejection', unhandledRejectionFn)
+    })
+
+    const storage = getFreshStorage()
+    const queryClient = new QueryClient()
+    const queryKey = ['foo']
+    const persister = experimental_createQueryPersister({ storage })
+    const queryHash = hashKey(queryKey)
+
+    // a stale entry, so it is refetched right after it is restored
+    await storage.setItem(
+      `${PERSISTER_KEY_PREFIX}-${queryHash}`,
+      JSON.stringify(createPersistedQuery({ data: 'persisted' })),
+    )
+
+    const error = new Error('network down')
+    const queryFn = vi.fn<QueryFunction>().mockRejectedValue(error)
+
+    const observer = new QueryObserver(queryClient, {
+      queryKey,
+      queryFn,
+      retry: false,
+      persister: persister.persisterFn,
+    })
+    const unsubscribe = observer.subscribe(() => {})
+    onTestFinished(unsubscribe)
+
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(queryFn).toHaveBeenCalledTimes(1)
+    expect(queryClient.getQueryState(queryKey)).toMatchObject({
+      status: 'error',
+      error,
+      data: 'persisted',
+    })
+    expect(unhandledRejectionFn).not.toHaveBeenCalled()
   })
 
   it('should store item after successful fetch', async () => {
