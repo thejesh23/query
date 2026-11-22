@@ -559,4 +559,37 @@ describe('InfiniteQueryBehavior', () => {
 
     unsubscribe()
   })
+
+  it('should not consume the signal when a persister is provided and the queryFn does not read it', async () => {
+    const key = createKey()
+    const queryFn = vi
+      .fn<QueryFunction<number, QueryKey, number>>()
+      .mockImplementation(({ pageParam }) => sleep(30).then(() => pageParam))
+
+    // oxlint-disable-next-line vitest/require-mock-type-parameters -- the persister receives an argument-less fetch function at runtime, which 'QueryPersister' cannot express
+    const persisterSpy = vi.fn().mockImplementation(async (fn) => {
+      return await fn()
+    })
+
+    const observer = new InfiniteQueryObserver(queryClient, {
+      queryKey: key,
+      queryFn,
+      getNextPageParam: (lastPage) => lastPage + 1,
+      initialPageParam: 1,
+      persister: persisterSpy,
+    })
+
+    // unsubscribe the last observer while the fetch is in flight
+    const unsubscribe = observer.subscribe(() => {})
+    await vi.advanceTimersByTimeAsync(10)
+    unsubscribe()
+    await vi.advanceTimersByTimeAsync(30)
+
+    // the signal was not consumed, so the fetch continues and its result is cached
+    expect(queryFn).toHaveBeenCalledTimes(1)
+    expect(queryCache.find({ queryKey: key })?.state).toMatchObject({
+      status: 'success',
+      data: { pages: [1], pageParams: [1] },
+    })
+  })
 })

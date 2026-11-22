@@ -128,7 +128,10 @@ export function infiniteQueryBehavior<TQueryFnData, TError, TData, TPageParam>(
               client: context.client,
               queryKey: context.queryKey,
               meta: context.options.meta,
-              signal: context.signal,
+              // read lazily, so the signal is only consumed if it is used
+              get signal() {
+                return context.signal
+              },
             },
             query,
           )
